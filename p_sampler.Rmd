@@ -6,7 +6,7 @@ output:
 
 ```{r}
 library(ggplot2)
-library(aTSA)
+library(tseries)
 ```
 
 #### [The model:]{.underline}
@@ -147,18 +147,25 @@ ggplot() +
 
 ```
 
-We now try to asses the stationary of our Markov chain by studying the autocorrelation and performing both ACF and PACF techniques as well as
+We now try to asses the stationary of our Markov chain by studying the autocorrelation and performing both ACF and PACF.
 
 ```{r}
 ggplot() +
   geom_line(aes(y=P, x=seq(1,length(P))))
 ```
 
+ACF and PACF analysis shows an exponential decay for the ACF and a single peek at log 1 in the PACF this suggests that the distribution is stationary. However this hypothesis is yet to be confirmed using statistical tests.
+
 ```{r}
 acf(P_no_outliers, lag.max = 100)
-pacf(P_no_outliers, lag.max = 100)
+pacf(P_no_outliers, lag.max = 10)
 ```
+
+In order to confirm the stationary we can use the KPSS test and the ADF test.
 
 ```{r}
-
+kpss.test(P, null = "Trend")
+adf.test(P)
 ```
+
+Given the p-values of the two tests, we can confirm that the Markov chain reached stationarity and that what we're observing is our target distribution.

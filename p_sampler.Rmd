@@ -7,6 +7,8 @@ output:
 ```{r}
 library(ggplot2)
 library(tseries)
+library(gridExtra)
+library(grid)
 ```
 
 #### [The model:]{.underline}
@@ -75,7 +77,11 @@ $$
 
 ```{r}
 Log_lik <- function (p, Theta1, Theta2, Y){
-  return(sum(log(p * dnorm(Y, Theta1$mu, Theta1$sigma) + (1-p) * dnorm(Y, Theta2$mu, Theta2$sigma))))
+  res <- vector(mode = "numeric", length(p))
+  for (i in 1:length(p)){
+    res[i] <- sum(log(p[i] * dnorm(Y, Theta1$mu, Theta1$sigma) + (1-p[i]) * dnorm(Y, Theta2$mu, Theta2$sigma)))
+  }
+  return(res)
 }
 ```
 
@@ -101,7 +107,7 @@ T <- 50000
 
 ##------------- Sampling algorithm
 # Initialization
-eps_p <- 0.6
+eps_p <- 0.4
 p_0 <- 0.9
 P <- p_0
 Acceptance <- NULL
@@ -137,15 +143,21 @@ n_trunc <- 100 # Index at which we start the truncated Markov Chain
 P <- P[n_trunc:length(P)]
 ```
 
-The histogram bellow shows the distribution of the obtained sample which is yet to be confirmed as Gaussian (According to the Bernstein-Von Mises theorem). One important observation is that the Bayesian estimator (in blue) is close to the exact value of the parameter (in red).
+The histogram bellow shows the distribution of the obtained sample. One important observation is that the Bayesian estimator (in blue) is close to the exact value of the parameter (in red).
 
-```{r}
+```{r warning=FALSE}
 ggplot() +
-  geom_histogram(aes(x=P), bins = 20) +
+  geom_histogram(aes(x=P), bins = 1000) +
   geom_vline(xintercept = p, color="red", show.legend = TRUE)  +
-  geom_vline(xintercept = mean(P), color="blue", show.legend = TRUE)
+  geom_vline(xintercept = mean(P), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de P\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")+
+  xlim(0,1)
 
 ```
+
+The obtained distribution is a beta distribution with very high parameters which explains the peaked value around the mean.
+
+#### Stationary of the Markov chain
 
 We now try to asses the stationary of our Markov chain by studying the autocorrelation and performing both ACF and PACF.
 
@@ -157,8 +169,8 @@ ggplot() +
 ACF and PACF analysis shows an exponential decay for the ACF and a single peek at log 1 in the PACF this suggests that the distribution is stationary. However this hypothesis is yet to be confirmed using statistical tests.
 
 ```{r}
-acf(P_no_outliers, lag.max = 100)
-pacf(P_no_outliers, lag.max = 10)
+acf(P, lag.max = 100)
+pacf(P, lag.max = 10)
 ```
 
 In order to confirm the stationary we can use the KPSS test and the ADF test.
@@ -168,4 +180,54 @@ kpss.test(P, null = "Trend")
 adf.test(P)
 ```
 
-Given the p-values of the two tests, we can confirm that the Markov chain reached stationarity and that what we're observing is our target distribution.
+Given the p-values of the two tests, we can confirm that the Markov chain reached stationarity and that what we're observing is our targt distribution.
+
+#### Effect of eps_p:
+
+```{r}
+T_accept <- 1000
+P0_accept <- 0.9
+source('metro_hasting_p.R')
+
+ac_rate <- function(x){return(metro_hasting_p(P0_accept, x, T_accept)$acceptance_rate)}
+X <- seq(0,10000, length.out = 1000)
+Z <- rep(NA, length(X))
+for (i in 1:length(Z)){ 
+  Z[i] <- ac_rate(X[i])
+}
+```
+
+```{r}
+#Plot the acceptance rate
+ggplot()+
+  geom_line(aes(y=Z, x=X))+
+  ggtitle("Evolution of the acceptance rate with respect to eps_p")+
+  labs(y = "Acceptance rate", x="eps_p")
+```
+
+The acceptance rate grows exponentially with respect to eps_p.
+
+We know run the sampling algorithm for 3 values of eps_p that yield different acceptances rates.
+
+```{r}
+T_accept = 1000
+EPS <- c(0.1, 300, 10000)
+PP <- matrix(NA, nrow = length(EPS), ncol = T_accept)
+for (i in 1:length(EPS)){ PP[i,] <- metro_hasting_p(P0_accept, EPS[i], T_accept)$Sample}
+```
+
+```{r}
+b <- 50 # Number of bins
+hist1 <- ggplot(data.frame(x = PP[1,]), aes(x = x))+
+  geom_histogram(bins = b, fill = "red")+
+  ggtitle(sprintf("eps_p = 0.1\nacceptance = %.3f", ac_rate(0.1)))
+hist2 <- ggplot(data.frame(x = PP[2,]), aes(x = x))+
+  geom_histogram(bins = b, fill = "darkgreen")+
+  ggtitle(sprintf("eps_p = 300\nacceptance = %.3f", ac_rate(300)))
+hist3 <- ggplot(data.frame(x = PP[3,]), aes(x = x))+
+  geom_histogram(bins = b, fill = "blue")+
+  ggtitle(sprintf("eps_p = 10000\nacceptance = %.3f", ac_rate(10000)))
+grid.arrange(hist1, hist2, hist3, ncol = 3, top = textGrob("Histograms for different values of eps_p"))
+```
+
+Through that the higher the acceptance rate the more likely the sampler is to travel in the support of the posterior beta distribution.

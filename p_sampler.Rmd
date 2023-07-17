@@ -1,17 +1,19 @@
 ---
-title: "Sampling algorithm"
+title: "p sampling algorithm"
 output:
   html_document:
 ---
 
 ```{r}
 library(ggplot2)
+library(reshape2)
 library(tseries)
 library(gridExtra)
 library(grid)
+library(dplyr)
 ```
 
-#### [The model:]{.underline}
+# [The model:]{.underline}
 
 We suppose we have an n-sample of the random variable $Y$ and want to estimate the mixture parameter using a Bayesian approach.
 
@@ -51,7 +53,7 @@ ggplot() +
   ggtitle("Historgram of the mixture distribution Y")
 ```
 
-#### [Sampling the mixture weight p :]{.underline}
+## [Sampling the mixture weight p :]{.underline}
 
 In this section we suppose that there is only one parameter of interest and suppose all the others constants equal to some arbitrary values.
 
@@ -129,7 +131,7 @@ for (i in 1:T){
 }
 ```
 
-#### [Results:]{.underline}
+### [Results:]{.underline}
 
 ```{r}
 ggplot() +
@@ -180,7 +182,7 @@ kpss.test(P, null = "Trend")
 adf.test(P)
 ```
 
-Given the p-values of the two tests, we can confirm that the Markov chain reached stationarity and that what we're observing is our targt distribution.
+Given the p-values of the two tests, we can confirm that the Markov chain reached stationarity and that what we're observing is our tart distribution.
 
 #### Effect of eps_p:
 
@@ -231,3 +233,24 @@ grid.arrange(hist1, hist2, hist3, ncol = 3, top = textGrob("Histograms for diffe
 ```
 
 Through that the higher the acceptance rate the more likely the sampler is to travel in the support of the posterior beta distribution.
+
+#### Sensitivity to starting conditions:
+
+```{r}
+eps_p <- 300
+P_0 <- runif(10)
+PP_ <- metro_hasting_p(P_0, eps_p , T)$Sample
+```
+
+```{r}
+df <- as.data.frame(PP_[1:150,])
+col_names <- sprintf(paste0("%.", 3, "f"), P_0)
+names(df) <- col_names
+df_melted <- melt(df, id.vars = NULL)
+df_melted$x <- rep(1:150, ncol(df))
+ggplot(data = df_melted, aes(x = x, y = value, color = variable)) +
+  geom_line()+
+  ggtitle("MCMC iterations for different starting points")
+```
+
+The graph above shows that the algorithm converges to the stationary distribution in less than a 100 steps. This observation leads us to studying the convergence rate of the algorithm.

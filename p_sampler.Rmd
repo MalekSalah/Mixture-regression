@@ -1,9 +1,3 @@
----
-title: "p sampling algorithm"
-output:
-  html_document:
----
-
 ```{r}
 library(ggplot2)
 library(reshape2)
@@ -11,6 +5,7 @@ library(tseries)
 library(gridExtra)
 library(grid)
 library(dplyr)
+library(compositions)
 ```
 
 # [The model:]{.underline}
@@ -25,10 +20,10 @@ $$
 p <- 0.7 #Mixture weight
 
 # Component parameters
-sigma_1 <- 1 
-sigma_2 <- 1
-mu_1 <- 4 
-mu_2 <- 0
+sigma_1 <- 1
+sigma_2 <- 2
+mu_1 <- 2 
+mu_2 <- 10
 
 Theta1 = list("mu"=mu_1, "sigma"= sigma_1)
 Theta2 = list("mu"=mu_2, "sigma"= sigma_2)
@@ -46,7 +41,8 @@ B <- sample(1:2, size = N, replace = TRUE, prob = c(p, 1-p))
 Mu <- c(mu_1, mu_2)
 Std <- c(sigma_1, sigma_2)
 Y <- rnorm(N, mean = Mu[B], sd = Std[B])
-
+sigma <- sd(Y) 
+mu <- mean(Y)
 # Plotting the distributions
 ggplot() + 
   geom_histogram(aes(Y), bins = 100)+
@@ -254,3 +250,170 @@ ggplot(data = df_melted, aes(x = x, y = value, color = variable)) +
 ```
 
 The graph above shows that the algorithm converges to the stationary distribution in less than a 100 steps. This observation leads us to studying the convergence rate of the algorithm.
+
+## [Sampling the $\eta_1$ , $\eta_2$ , and $\varphi$ :]{.underline} 
+
+We know sample the parameters $\eta_1$ , $\eta_2$, and $\varphi$ .
+
+##### Prior distribution:
+
+$$
+(\eta_1, \eta_2, \varphi) \sim \mathcal{D}(\alpha_1, \alpha_2, \alpha_3)
+$$
+
+```{r}
+library(DirichletReg)
+Alpha <- c(.5,.5,.5)
+```
+
+##### Posterior distribution:
+
+```{r}
+source("Log_likelihood.R")
+Log_post_etaPhi <- function (p, etaPhi, sigma, mu, Alpha, Y){
+  return( Log_lik_etaPhi(p, etaPhi, sigma, mu, Y) + ddirichlet(matrix(etaPhi, nrow = 1), Alpha, log = TRUE))
+}
+```
+
+##### Metropolis Hastings sampler : eta-phi
+
+```{r}
+# Number of iterations
+T <- 50000
+##------------- Sampling algorithm
+#Constants of the algorithm
+mu1_0 <- 1
+mu2_0 <- 1
+mu1 <- vector(mode = "numeric", length = T)
+mu2 <- vector(mode = "numeric", length = T)
+mu1[1] <- mu1_0
+mu2[1] <- mu2_0
+
+# Initialization etaPhi (contient les carres de eta_1, eta_2 et Phi )
+eps_etaPhi <- 300
+etaPhi_0 <- rdirichlet(1, Alpha)
+ETAPHI <- matrix(NA, T, 3)
+ETAPHI[1, ] <- etaPhi_0
+
+# Initialisation sigma1/2
+sigma1_0 <- 1
+sigma2_0 <- 1
+sigma1 <- vector(mode = "numeric", length = T)
+sigma2 <- vector(mode = "numeric", length = T)
+sigma1[1] <- sigma1_0
+sigma2[1] <- sigma2_0
+
+#Acceptance
+Acceptance <- NULL
+for (i in 1:(T - 1)) {
+  # Generating a proposal
+  etaPhi_t <- ETAPHI[i, ]
+  etaPhi_prop <-
+    rdirichlet(1,
+               c(
+                 etaPhi_t[1] * eps_etaPhi + 1,
+                 etaPhi_t[2] * eps_etaPhi + 1,
+                 etaPhi_t[3] * eps_etaPhi + 1
+               ))
+  # Computing acceptance probability
+  C1 <-
+    c(
+      etaPhi_prop[1] * eps_etaPhi + 1,
+      etaPhi_prop[2] * eps_etaPhi + 1,
+      etaPhi_prop[3] * eps_etaPhi + 1
+    )
+  C2 <-
+    c(etaPhi_t[1] * eps_etaPhi + 1,
+      etaPhi_t[2] * eps_etaPhi + 1,
+      etaPhi_t[3] * eps_etaPhi + 1)
+  log_acceptance <-
+    (
+      Log_post_etaPhi(p, sqrt(etaPhi_prop), sigma, mu, Alpha, Y) + ddirichlet(matrix(etaPhi_t, nrow = 1), C1 , log = TRUE)
+    ) - (Log_post_etaPhi(p, sqrt(etaPhi_t), sigma, mu, Alpha, Y) + ddirichlet(matrix(etaPhi_prop, nrow = 1), C2, log = TRUE))
+  acc <- min(1, exp(log_acceptance))
+  # Decision on the next step
+  U = runif(1)
+  if (acc > U)
+    ETAPHI[i + 1, ] <- etaPhi_prop
+  else
+    ETAPHI[i + 1, ] <- etaPhi_t
+  # Update sigma1/2
+  ephi <- sqrt(ETAPHI[i+1,])
+  sigma1[i + 1] <- sigma * (ephi[1] / sqrt(p))
+  sigma2[i + 1] <- sigma * (ephi[2] / sqrt(1 - p))
+  mu1[i + 1] <- mu - sigma * ephi[3] * (sqrt(1 - p) / sqrt(p))
+  mu2[i + 1] <- mu + sigma * ephi[3] * (sqrt(p) / sqrt(1 - p))
+  
+  Acceptance <- c(Acceptance, acc) 
+}
+
+```
+
+```{r}
+n_trunc <- 100
+mu1 <- mu1[n_trunc:length(mu1)]
+mu2 <- mu2[n_trunc:length(mu2)]
+sigma1 <- sigma1[n_trunc:length(sigma1)]
+sigma2 <- sigma2[n_trunc:length(sigma2)]
+```
+
+### Results:
+
+The plot of the ETAPHI values in the $S^2$ space shows that the value of the coordinates end up converging to a specific value. We can see this as a first proof of the convergence of the algorithm.
+
+```{r}
+source("plot_dirichlet.R")
+plot_dirichlet(ETAPHI)
+```
+
+```{r warning=FALSE}
+ggplot() +
+  geom_histogram(aes(x=sigma1), bins = 300) +
+  geom_vline(xintercept = sigma_1, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(sigma1), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de sigma1\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+
+ggplot() +
+  geom_histogram(aes(x=sigma2), bins = 300) +
+  geom_vline(xintercept = sigma_2, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(sigma2), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de sigma2\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+```
+
+```{r}
+ggplot() +
+  geom_histogram(aes(x=mu1), bins = 300) +
+  geom_vline(xintercept = mu_1, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(mu1), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de mu1\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+
+ggplot() +
+  geom_histogram(aes(x=mu2), bins = 300) +
+  geom_vline(xintercept = mu_2, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(mu2), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de mu2\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+```
+
+#### Stationary of the Markov chain:
+
+```{r}
+acf(sigma1)
+pacf(sigma1)
+```
+
+```{r}
+acf(sigma2)
+pacf(sigma2)
+```
+
+```{r}
+acf(mu1)
+pacf(mu1)
+```
+
+```{r}
+acf(mu2)
+pacf(mu2)
+```
+
+The acf and pacf plots for the simulated parameters have features that indicate a strong stationary which indicates with the low error of the estimators that the algorithm is convergent.

@@ -47,3 +47,9 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# knited documents
+*.html
+
+# Data 
+*.csv

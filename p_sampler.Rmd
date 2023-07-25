@@ -583,3 +583,5 @@ ggplot() +
   geom_vline(xintercept = mean(mu2), color="blue", show.legend = TRUE) +
   ggtitle("Histogramme des echantillons de mu2\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
 ```
+
+## Sampling 

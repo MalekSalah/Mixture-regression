@@ -4,7 +4,7 @@ Log_lik_p <- function (p, Theta1, Theta2, Y){
   return(res)
 }
 
-Log_lik_etaPhi <- function (p, etaPhi, sigma, mu,  Y){
+Log_lik_etaPhi_p <- function (p, etaPhi, sigma, mu,  Y){
   mu1 <- mu - sigma * etaPhi[3] * (sqrt(1-p)/sqrt(p))
   mu2 <- mu + sigma * etaPhi[3] * (sqrt(p)/sqrt(1-p))
   sigma1 <- sigma * (etaPhi[1] / sqrt(p))

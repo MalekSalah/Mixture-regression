@@ -105,7 +105,7 @@ Log_post_p <- function (p, Theta1, Theta2, Tau, Y) {
 
 ```{r}
 # Number of iterations
-T <- 50000
+T <- 10000
 
 ##------------- Sampling algorithm
 # Initialization
@@ -584,4 +584,326 @@ ggplot() +
   ggtitle("Histogramme des echantillons de mu2\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
 ```
 
-## Sampling 
+## Sampling $p$ with acceptance rate adaptation:
+
+```{r}
+Log_lik <- function (p, Theta1, Theta2, Y){
+  res <- vector(mode = "numeric", length(p))
+  for (i in 1:length(p)){
+    res[i] <- sum(log(p[i] * dnorm(Y, Theta1$mu, Theta1$sigma) + (1-p[i]) * dnorm(Y, Theta2$mu, Theta2$sigma)))
+  }
+  return(res)
+}
+
+Log_post_p <- function (p, Theta1, Theta2, Tau, Y) {
+  return(Log_lik(p, Theta1, Theta2, Y) + log(dbeta(p, Tau$tau1, Tau$tau2)))
+}
+```
+
+```{r}
+# Number of iterations
+T <- 10000
+T_adapt <- 300
+
+
+##------------- Sampling algorithm
+# Initialization
+eps_p <- 0.4
+P <- numeric(length = T)
+p_0 <- 0.8
+P[1] <- p_0
+P_adapt <- numeric(length = T_adapt)
+
+# Algorithm vitals
+ac_p <-  logical(length = T-1)
+ac_rate_p <- numeric(length = T-1)
+
+# Adaptation
+ac_rate_lower <- .3
+ac_rate_upper <- .4
+adapt_eps_p <- FALSE
+cur_adapt <- 150
+ac_rate_span <- 80
+
+
+for (i in 1:(T-1)){
+  # Generating a proposal
+  p_t <- P[i]
+  p_prop <- rbeta(1, p_t*eps_p+1, (1-p_t)*eps_p+1)
+  
+  # Computing acceptance probability
+  log_acceptance <- (Log_post_p(p_prop, Theta1, Theta2, Tau, Y)+log(dbeta(p_t, p_prop*eps_p+1, (1-p_prop)*eps_p+1))) - (Log_post_p(p_t, Theta1, Theta2, Tau, Y) + log(dbeta(p_prop, p_t*eps_p+1, (1-p_t)*eps_p+1)))
+  acc <- min(1, exp(log_acceptance))
+  
+  # Decision on the next step 
+  U = runif(1)
+  if (s <- (acc>U)) p_next <- p_prop
+  else p_next <- p_t
+  
+  # Acceptance rate
+  if (i==1) ac_p[i] <- s
+  else ac_p[i] <- ac_p[i-1]+s
+  ac_rate_p[i] <- ac_p[i]/i
+  
+  if ((i%%cur_adapt==0) && ((median(ac_rate_p[1:i])>.4) || (median(ac_rate_p[1:i])<.3))) {
+    i_start <- i
+    adapt_eps_p <- TRUE
+    ac_rate_window <- numeric(ac_rate_span)
+  }
+  
+  if (adapt_eps_p == TRUE){
+    P_adapt[1] <- p_next
+    for (j in 1:T_adapt){
+      p_t <- P_adapt[j]
+      p_prop <- rbeta(1, p_t*eps_p+1, (1-p_t)*eps_p+1)
+      
+      # Computing acceptance probability
+      log_acceptance <- (Log_post_p(p_prop, Theta1, Theta2, Tau, Y)+log(dbeta(p_t, p_prop*eps_p+1, (1-p_prop)*eps_p+1))) - (Log_post_p(p_t, Theta1, Theta2, Tau, Y) + log(dbeta(p_prop, p_t*eps_p+1, (1-p_t)*eps_p+1)))
+        acc <- min(1, exp(log_acceptance))
+        
+      # Decision on the next step
+      U = runif(1)
+      if (s <- (acc>U)) P_adapt[j+1] <- p_prop
+      else P_adapt[j+1] <- p_t
+      
+      ac_rate_window[j %% ac_rate_span + 1] <- s
+      
+      if (j >= ac_rate_span){
+        current_ac_rate <- sum(ac_rate_window) / ac_rate_span
+      
+        # Adjust the eps_p 
+        if (current_ac_rate < ac_rate_lower) eps_p <- min(eps_p*1.4, 1000)
+        else if (current_ac_rate > ac_rate_upper) eps_p <- max(0, eps_p*0.8)
+      }
+    }
+    adapt_eps_p <- FALSE
+  }
+  P[i+1] <- p_next
+}
+```
+
+```{r}
+ggplot() +
+  geom_line(aes(y=ac_rate_p, x=seq(1,length(ac_rate_p))))+
+  geom_hline(yintercept = ac_rate_lower, linetype ="dashed", color  = "blue")+
+  geom_hline(yintercept = ac_rate_upper, linetype ="dashed", color  = "blue")+
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin= ac_rate_lower, ymax=ac_rate_upper), alpha = .1, fill = "blue")+
+  ggtitle("Evolution of the acceptance rate")+
+  labs(y="Acceptance rate", x="Iteration number")
+  
+  
+```
+
+```{r warning=FALSE}
+n_trunc <- 100
+P <- P[n_trunc:length(P)]
+ggplot() +
+  geom_histogram(aes(x=P), bins = 1000) +
+  geom_vline(xintercept = p, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(P), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de P\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")+
+  xlim(0,1)
+```
+
+## Sampling etaPhi with adaptation :
+
+```{r}
+source("Log_likelihood.R")
+Log_post_etaPhi <- function (p, etaPhi, sigma, mu, Alpha, Y){
+  return( Log_lik_etaPhi_p(p, etaPhi, sigma, mu, Y) + ddirichlet(matrix(etaPhi, nrow = 1), Alpha, log = TRUE))
+}
+
+mu <- mean(Y)
+sigma <- sd(Y)
+
+library(DirichletReg)
+Alpha <- c(.5,.5,.5)
+```
+
+```{r}
+# Number of iterations
+T <- 10000
+T_adapt <- 300
+
+#Constants of the algorithm
+mu1_0 <- 1
+mu2_0 <- 1
+mu1 <- vector(mode = "numeric", length = T)
+mu2 <- vector(mode = "numeric", length = T)
+mu1[1] <- mu1_0
+mu2[1] <- mu2_0
+
+# Algorithm vitals
+ac_etaPhi_sqrd <-  logical(length = T-1)
+ac_rate_etaPhi_sqrd <- numeric(length = T-1)
+
+# Initialization etaPhi (contient les carres de eta_1, eta_2 et Phi )
+eps_etaPhi_sqrd <- 300
+etaPhi_sqrd_0 <- rdirichlet(1, Alpha)
+etaPhi_sqrd <- matrix(NA, T, 3)
+etaPhi_sqrd[1, ] <- etaPhi_sqrd_0
+etaPhi_sqrd_adapt <- matrix(NA, T_adapt, 3)
+
+
+# Initialisation sigma1/2
+sigma1_0 <- 1
+sigma2_0 <- 1
+sigma1 <- vector(mode = "numeric", length = T)
+sigma2 <- vector(mode = "numeric", length = T)
+sigma1[1] <- sigma1_0
+sigma2[1] <- sigma2_0
+
+# Adaptation
+ac_rate_lower <- .3
+ac_rate_upper <- .4
+adapt_eps_etaPhi_sqrd <- FALSE
+cur_adapt <- 100
+ac_rate_span <- 50
+nb_adapt <- NULL
+for (i in 1:(T - 1)) {
+  # Generating a proposal
+  etaPhi_sqrd_t <- etaPhi_sqrd[i, ]
+  etaPhi_sqrd_prop <-
+    rdirichlet(1,
+               c(
+                 etaPhi_sqrd_t[1] * eps_etaPhi_sqrd + 1,
+                 etaPhi_sqrd_t[2] * eps_etaPhi_sqrd + 1,
+                 etaPhi_sqrd_t[3] * eps_etaPhi_sqrd + 1
+               ))
+  # Computing acceptance probability
+  C1 <-
+    c(
+      etaPhi_sqrd_prop[1] * eps_etaPhi_sqrd + 1,
+      etaPhi_sqrd_prop[2] * eps_etaPhi_sqrd + 1,
+      etaPhi_sqrd_prop[3] * eps_etaPhi_sqrd + 1
+    )
+  C2 <-
+    c(etaPhi_sqrd_t[1] * eps_etaPhi_sqrd + 1,
+      etaPhi_sqrd_t[2] * eps_etaPhi_sqrd + 1,
+      etaPhi_sqrd_t[3] * eps_etaPhi_sqrd + 1)
+  log_acceptance <-
+    (
+      Log_post_etaPhi(p, sqrt(etaPhi_sqrd_prop), sigma, mu, Alpha, Y) + ddirichlet(matrix(etaPhi_sqrd_t, nrow = 1), C1 , log = TRUE)
+    ) - (Log_post_etaPhi(p, sqrt(etaPhi_sqrd_t), sigma, mu, Alpha, Y) + ddirichlet(matrix(etaPhi_sqrd_prop, nrow = 1), C2, log = TRUE))
+  acc <- min(1, exp(log_acceptance))
+  
+  # Decision on the next step
+  U = runif(1)
+  if (s <- (acc > U))
+    etaPhi_sqrd_next <- etaPhi_sqrd_prop
+  else
+    etaPhi_sqrd_next <- etaPhi_sqrd_t
+  
+  # Acceptance rate
+  if (i==1) ac_etaPhi_sqrd[i] <- s
+  else ac_etaPhi_sqrd[i] <- ac_etaPhi_sqrd[i-1]+s
+  ac_rate_etaPhi_sqrd[i] <- ac_etaPhi_sqrd[i]/i
+  
+  
+  if ((i%%cur_adapt==0) && ((mean(ac_rate_etaPhi_sqrd[(i-cur_adapt/2):i])>.4) || (mean(ac_rate_etaPhi_sqrd[(i-cur_adapt/2):i])<.3))) {
+    adapt_eps_etaPhi_sqrd <- TRUE
+    nb_adapt <- c(nb_adapt, i)
+    ac_rate_window <- numeric(ac_rate_span)
+  }
+  
+  if (adapt_eps_etaPhi_sqrd == TRUE){
+    etaPhi_sqrd_adapt[1,] <- etaPhi_sqrd_next
+    for (j in 1:(T_adapt-1)){
+      etaPhi_sqrd_t <- etaPhi_sqrd_adapt[j,]
+      etaPhi_sqrd_prop <-
+        rdirichlet(1,
+                   c(
+                     etaPhi_sqrd_t[1] * eps_etaPhi_sqrd + 1,
+                     etaPhi_sqrd_t[2] * eps_etaPhi_sqrd + 1,
+                     etaPhi_sqrd_t[3] * eps_etaPhi_sqrd + 1
+                     ))
+      # Computing acceptance probability
+      C1 <-
+        c(
+          etaPhi_sqrd_prop[1] * eps_etaPhi_sqrd + 1,
+          etaPhi_sqrd_prop[2] * eps_etaPhi_sqrd + 1,
+          etaPhi_sqrd_prop[3] * eps_etaPhi_sqrd + 1
+        )
+      C2 <-
+        c(etaPhi_sqrd_t[1] * eps_etaPhi_sqrd + 1,
+          etaPhi_sqrd_t[2] * eps_etaPhi_sqrd + 1,
+          etaPhi_sqrd_t[3] * eps_etaPhi_sqrd + 1)
+      log_acceptance <-
+        (
+          Log_post_etaPhi(p, sqrt(etaPhi_sqrd_prop), sigma, mu, Alpha, Y) + ddirichlet(matrix(etaPhi_sqrd_t, nrow = 1), C1 , log = TRUE)
+        ) - (Log_post_etaPhi(p, sqrt(etaPhi_sqrd_t), sigma, mu, Alpha, Y) + ddirichlet(matrix(etaPhi_sqrd_prop, nrow = 1), C2, log = TRUE))
+      acc <- min(1, exp(log_acceptance))
+      # Decision on the next step
+      U = runif(1)
+      if (s <- (acc>U)) etaPhi_sqrd_adapt[j+1,] <- etaPhi_sqrd_prop
+      else etaPhi_sqrd_adapt[j+1,] <- etaPhi_sqrd_t
+      
+      ac_rate_window[j %% ac_rate_span + 1] <- s
+      
+      if (j >= ac_rate_span){
+        current_ac_rate <- sum(ac_rate_window) / ac_rate_span
+      
+        # Adjust the eps_p 
+        if (current_ac_rate < ac_rate_lower) eps_etaPhi_sqrd <- eps_etaPhi_sqrd*1.1
+        else if (current_ac_rate > ac_rate_upper) eps_etaPhi_sqrd <- max(0, eps_etaPhi_sqrd*0.9)
+        }
+    }
+    adapt_eps_etaPhi_sqrd <- FALSE
+  }
+  
+  
+  etaPhi_sqrd[i+1,] <- etaPhi_sqrd_next
+  
+  # Update sigma1/2
+  etaPhi <- sqrt(etaPhi_sqrd[i+1,])
+  sigma1[i+1] <- sigma * (etaPhi[1] / sqrt(p))
+  sigma2[i+1] <- sigma * (etaPhi[2] / sqrt(1 - p))
+  mu1[i + 1] <- mu - sigma * etaPhi[3] * (sqrt(1 - p) / sqrt(p))
+  mu2[i + 1] <- mu + sigma * etaPhi[3] * (sqrt(p) / sqrt(1 - p))
+}
+
+n_trunc <- 5000
+mu1 <- mu1[n_trunc:length(mu1)]
+mu2 <- mu2[n_trunc:length(mu2)]
+sigma1 <- sigma1[n_trunc:length(sigma1)]
+sigma2 <- sigma2[n_trunc:length(sigma2)]
+```
+
+```{r}
+ggplot() +
+  geom_line(aes(y=ac_rate_etaPhi_sqrd, x=seq(1,length(ac_rate_etaPhi_sqrd))))+
+  geom_hline(yintercept = ac_rate_lower, linetype ="dashed", color  = "blue")+
+  geom_hline(yintercept = ac_rate_upper, linetype ="dashed", color  = "blue")+
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin= ac_rate_lower, ymax=ac_rate_upper), alpha = .1, fill = "blue")+
+  ggtitle("Evolution of the acceptance rate")+
+  labs(y="Acceptance rate", x="Iteration number")
+  
+```
+
+```{r}
+ggplot() +
+  geom_histogram(aes(x=mu1), bins = 300) +
+  geom_vline(xintercept = mu_1, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(mu1), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de mu1\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+
+ggplot() +
+  geom_histogram(aes(x=mu2), bins = 300) +
+  geom_vline(xintercept = mu_2, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(mu2), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de mu2\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+```
+
+```{r}
+ggplot() +
+  geom_histogram(aes(x=sigma1), bins = 300) +
+  geom_vline(xintercept = sigma_1, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(sigma1), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de sigma1\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+
+ggplot() +
+  geom_histogram(aes(x=sigma2), bins = 300) +
+  geom_vline(xintercept = sigma_2, color="red", show.legend = TRUE)  +
+  geom_vline(xintercept = mean(sigma2), color="blue", show.legend = TRUE) +
+  ggtitle("Histogramme des echantillons de sigma2\n En rouge la valeur exacte, en bleu l'estimateur de Bayes")
+```

@@ -12,3 +12,16 @@ Log_lik_etaPhi_p <- function (p, etaPhi, sigma, mu,  Y){
   res <- sum(log(p*dnorm(Y, mu1, sigma1)  + (1-p)* dnorm(Y, mu2, sigma2)))
   return(res)
 }
+
+Log_lik <- function (p, etaPhi, beta, sigma, X, Y){
+  # Compute expectation
+  mu_XB <- X %*% beta 
+  
+  # Components' sd and expectation
+  mu1 <- mu_XB + c1*sigma
+  mu2 <- mu_XB + c2*sigma
+  sigma1 <- sigma * alfa1
+  sigma2 <- sigma * alfa2
+  res <- sum(log(p*dnorm(Y, mu1, sigma1)  + (1-p)* dnorm(Y, mu2, sigma2)))  
+  return(res)
+}

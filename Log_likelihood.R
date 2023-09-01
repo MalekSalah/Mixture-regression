@@ -18,10 +18,10 @@ Log_lik <- function (p, etaPhi, beta, sigma, X, Y){
   mu_XB <- X %*% beta 
   
   # Components' sd and expectation
-  mu1 <- mu_XB + c1*sigma
-  mu2 <- mu_XB + c2*sigma
-  sigma1 <- sigma * alfa1
-  sigma2 <- sigma * alfa2
+  mu1 <- mu_XB - sigma * etaPhi[3] * (sqrt(1-p)/sqrt(p))
+  mu2 <- mu_XB + sigma * etaPhi[3] * (sqrt(p)/sqrt(1-p))
+  sigma1 <- sigma * (etaPhi[1] / sqrt(p))
+  sigma2 <- sigma * (etaPhi[2] / sqrt(1-p))
   res <- sum(log(p*dnorm(Y, mu1, sigma1)  + (1-p)* dnorm(Y, mu2, sigma2)))  
   return(res)
 }

@@ -1,4 +1,6 @@
-source("posterior_p.R")
+Log_post_p <- function (p, Theta1, Theta2, Tau, Y) {
+  return(Log_lik(p, Theta1, Theta2, Y) + log(dbeta(p, Tau$tau1, Tau$tau2)))
+}
 
 # This is the vectorized version of the Metropolis Hastings algorithm used to sample p
 # P_0, the starting point could be a vector 

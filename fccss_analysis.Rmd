@@ -1,0 +1,169 @@
+---
+title: "Analysis of the FCCSS"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(dplyr)
+library(GGally)
+library(corrplot)
+library(Rtsne)
+library(PerformanceAnalytics)
+library(ggplot2)
+library(FactoMineR)
+library(gridExtra)
+```
+
+##### Loading data:
+
+-   We remove NAs
+
+-   Discard patient identifiers
+
+-   Remove patients who haven't received radiotherapy (Mean_dose_heart \> 0)
+
+-   Compute the log survival time
+
+-   Summarize the chemotherapy groups in one single variable that indicates if the patient underwent chemotherapy
+
+```{r}
+chemo <- c("ALKYL", "ANTHRA", "VINCA", "ANTIM", "ANTIB", "CHIMIO_GROUPE_AUTRE", "Chemotherapy")
+
+grade3 <- read.csv("fccss.csv", header = TRUE, sep = ",", dec = ".") %>% 
+  na.omit() %>%
+  select(-"ctr", -"numcent") %>%
+  mutate(log_survival_time = log(survival_time_years)) %>%
+  filter(Pathologie_cardiaque_3_new == 1, Mean_dose_heart > 0 , Mean_dose_heart <20) %>%
+  select(-Pathologie_cardiaque_3_new) %>%
+  rowwise() %>%
+  mutate(Chemotherapy  = as.integer(any(c_across(ALKYL:CHIMIO_GROUPE_AUTRE))))
+  
+grade3_chemo <-  grade3 %>%
+  filter(Chemotherapy == 1) %>%
+  select(-Chemotherapy)
+
+grade3_no_chemo <- grade3 %>%
+  filter(Chemotherapy == 0) %>%
+  select(-Chemotherapy)
+
+```
+
+## Analysis:
+
+#### Scatter plots
+
+-   **Chemo + Radio :**
+
+    ```{r}
+    ggplot(data = subset(grade3_chemo, ALKYL==1), aes(y = survival_time_years , x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Chemotherapy and radiotherapy ALKYL")
+
+
+    ggplot(data = subset(grade3_chemo, ANTHRA==1), aes(y = survival_time_years , x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Chemotherapy and radiotherapy ANTHRA")
+
+
+    ggplot(data = subset(grade3_chemo, VINCA==1), aes(y = survival_time_years , x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Chemotherapy and radiotherapy VINCA")
+
+
+    ggplot(data = subset(grade3_chemo, ANTIM==1), aes(y = survival_time_years , x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Chemotherapy and radiotherapy ANTIM")
+
+
+    ggplot(data = subset(grade3_chemo, ANTIB==1), aes(y = survival_time_years , x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Chemotherapy and radiotherapy ANTIB")
+
+
+    ggplot(data = subset(grade3_chemo, CHIMIO_GROUPE_AUTRE==1), aes(y = survival_time_years , x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Chemotherapy and radiotherapy AUTRE")
+    ```
+
+-   **Radio :**
+
+    ```{r}
+    ggplot(data = grade3_no_chemo, aes(y = survival_time_years, x = Mean_dose_heart)) + 
+      geom_point() + 
+      geom_smooth(method = "loess", formula = 'y~x')+
+      ggtitle("Radiotherapy")
+    ```
+
+#### T-SNE
+
+```{r}
+#tsne_grade3 <- Rtsne(grade3, dims = 2, perplexity = 30, theta = 0.5)
+tsne_grade3_chemo <- Rtsne(grade3_chemo, dims = 2, perplexity = 30, theta = 0.5)
+tsne_grade3_no_chemo <- Rtsne(grade3_no_chemo, dims = 2, perplexity =11, theta = 0.5)
+#plot(tsne_grade3$Y, main = "Grade3 chemo or radio")
+plot(tsne_grade3_chemo$Y, main = "Chemotherapy and radiotherapy")
+plot(tsne_grade3_no_chemo$Y, main = "Radiotherapy")
+```
+
+#### PCA:
+
+**Radio + Chemo**:
+
+```{r}
+#pca_grade3 <- prcomp(grade3, scale. = TRUE)
+pca_grade3_chemo <- PCA(grade3_chemo, graph = FALSE)
+#biplot(pca_grade3)
+plot(pca_grade3_chemo, choix = "var")
+plot(pca_grade3_chemo, choix = "ind")
+```
+
+**Chemo:**
+
+```{r}
+pca_grade3_no_chemo <- PCA(grade3_no_chemo, graph = FALSE)
+plot(pca_grade3_no_chemo, choix = "var")
+plot(pca_grade3_no_chemo, choix = "ind")
+```
+
+#### Correlation matrix
+
+**Radio:**
+
+```{r message=FALSE, warning=FALSE}
+ggpairs(grade3_no_chemo[c("survival_time_years", "age_at_diagnosis", "Mean_dose_heart", "log_survival_time")])
+```
+
+**Radio + Chemo**
+
+```{r message=FALSE}
+ggpairs(grade3_chemo[c("survival_time_years", "age_at_diagnosis", "Mean_dose_heart", "log_survival_time")])
+```
+
+```{r}
+source("MixIdentifier.R")
+source("rnornix.R")
+Mix <- MixIdentifier(grade3$log_survival_time, 100000)
+sim_log_sv <- rnormix(dim(grade3)[1], p = mean(Mix$mixture_wight), sigma_1 = mean(Mix$sigma1),mu_1 = mean(Mix$mu1), sigma_2 = mean(Mix$sigma2),mu_2 = mean(Mix$mu2))$samples
+```
+
+```{r}
+ggplot() + 
+  geom_histogram(aes(grade3$log_survival_time), bins = 100, alpha=.5, fill = "blue")+
+  geom_histogram(aes(sim_log_sv), bins = 100, alpha=.5, fill= "green")+
+  xlab("")
+```
+
+```{r}
+ggplot() + 
+  geom_histogram(aes(grade3$survival_time_years), bins = 50, alpha=.5, fill = "blue")+
+  geom_histogram(aes(exp(sim_log_sv)), bins = 50, alpha=.5, fill= "green")+
+  xlim(0, 100)
+```

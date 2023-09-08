@@ -1,0 +1,90 @@
+---
+title: "log-linear prediction model"
+output: html_notebook
+---
+
+#### The model:
+
+We consider a random variable Y that follows a Gaussian mixture
+
+$$
+Y \sim p\mathcal{N}(\mu_1, \sigma_1) + (1-p)\mathcal{N}(\mu_2, \sigma_2)
+$$
+
+Given the predictors $X = (X_1, \ldots, X_k)$ we express the overall mean of the model such that,
+
+$$
+\mathbb{E}[Y] = \mu = \log\left(\sum\beta_iX_i\right)
+$$
+
+and express the other parameters using Kamary $\textit{et al.}$ reparametrization
+
+$$
+\begin{align*} \mu_1=\mu-\sigma~\phi~.\left(\frac{\sqrt{1-p}}{\sqrt{p}}\right); &\quad \quad  \mu_2=\mu+\sigma~\phi~.\left(\frac{\sqrt{p}}{\sqrt{1-p}}\right)\\  \sigma_1=\sigma\left(\frac{\eta_1}{\sqrt{p}}\right); \quad &\quad \sigma_2=\sigma\left(\frac{\eta_2}{\sqrt{1-p}}\right)\\ \text{where}~\eta_1^2&+\eta_2^2+\phi^2=1\end{align*}
+$$
+
+### Data simulation:
+
+To simulate data from the previous model, we start by simulating $n$ observations from $k$ covariates $X = (X_1, \ldots, X_k)$ using a multivariate normal distribution (Any other distribution can be used) and add the intercept $X_0$.
+
+```{r}
+n <- 100
+k <- 4
+set.seed(1999)
+library(mvtnorm)
+X <- matrix(data = NA, nrow = n, ncol = k)
+X <- rmvnorm(n, mean = c(1,4,6,2))
+X <- cbind(rep(1,n), X)
+```
+
+The coefficients $\beta_0, \dots, \beta_k$ for the linear predictor are chosen as follows,
+
+$$
+\mu  = \log(3X_0 + 10X_1 + 4X_2 + 9X_3 + 12X_4)
+$$
+
+```{r}
+beta <- matrix(c(3,10,4,9,12), nrow = 1)
+```
+
+We now compute the overall mean of the model using the the log-linear relation
+
+```{r}
+mu <- log(beta %*% t(X))
+```
+
+For the choice of $\eta_1,\eta_2 \text{ and } \phi$ we use a randomly generated sample form the Dirichlet distribution
+
+```{r}
+library(DirichletReg)
+set.seed(1999)
+coeff <- sample(c(-1, 1), size = 1, replace = TRUE, prob = c(.5, .5))
+etaphi <- c(1,1,coeff) * rdirichlet(1, c(.5, .5, .5))
+eta1 <- etaphi[1]
+eta2 <- etaphi[2]
+phi <- etaphi[3]
+```
+
+The last parameters to choose are the mixture weight $p$ and the standard deviation $\sigma$
+
+```{r}
+p <- 0.2
+sigma <- matrix(data = rep(1, n), nrow = 1)
+```
+
+Using all the previous parameters we compute the parameters of the mixture
+
+```{r}
+mu1 <- mu - sigma * phi * (sqrt(1-p)/sqrt(p))
+mu2 <- mu + sigma * phi * (sqrt(p)/sqrt(1-p))
+sigma1 <- sigma * (eta1/ sqrt(p))
+sigma2 <- sigma * (eta2/sqrt(1-p))
+```
+
+we now simulate the response variable,
+
+```{r}
+source("rnornix.R")
+set.seed(1999)
+Y <- rnormix(n, p, mu1, sigma1, mu2, sigma2)$samples
+```
